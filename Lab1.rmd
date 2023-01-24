@@ -1,0 +1,112 @@
+---
+title: "Lab 1: Social Network"
+author: Justin Singh-Mohudpur
+---
+
+```{r setup, include=FALSE}
+library(leaflet)
+
+knitr::opts_chunk$set(
+    "cache" = TRUE,
+    "message" = FALSE,
+    "warning" = FALSE
+)
+```
+
+This dataset contains information about the American Mafia.
+The data was collected by Dan DellaPosta at Penn State,
+and it should **only** be used for this lab.
+
+## Datasets
+```{r datasets}
+mafia_edges <- read.csv("labs/Lab1_mafi/MafiaEdges_2.csv", header = TRUE)
+mafia_nodes <- read.csv("labs/Lab1_mafi/MafiaNodes_2.csv", header = TRUE)
+```
+
+### Mafia Edges
+```{r show_edges, echo=FALSE}
+knitr::kable(head(mafia_edges))
+```
+
+### Mafia Nodes
+```{r show_nodes, echo=FALSE}
+knitr::kable(head(mafia_nodes))
+```
+
+### Analysis
+```{r mafia_graph}
+g <- igraph::graph_from_edgelist(
+    as.matrix(mafia_edges[, -3]),
+    directed = "false"
+)
+```
+
+Based on the above samples, we can notice a few things about this dataset:
+
+- The network is **undirected**.
+- The network is **unweighted**.
+- The names of members are nodes.
+- The network has the following characteristics:
+    - `r nrow(mafia_edges)` edges.
+    - `r nrow(mafia_nodes)` nodes.
+    - density of `r igraph::edge_density(g)`
+    - global clustering coefficient of `r igraph::global_efficiency(g)`
+    - diameter of `r igraph::diameter(g)`
+    - average path length of `r igraph::average.path.length(g)`
+
+### Visualization
+```{r mafia_sfnetwork}
+mafia_sfnodes <- sf::st_as_sf(
+    mafia_nodes,
+    coords = c("LonX", "LatY"),
+    crs = "EPSG:4326"
+)
+
+centrality <- igraph::eigen_centrality(g)$vector
+ordering <- match(mafia_sfnodes$ID, names(centrality))
+mafia_sfnodes$centrality <- centrality[ordering]
+
+mafia_sfedges <- mafia_edges |>
+    dplyr::left_join(
+        dplyr::select(
+            mafia_nodes,
+            Source = ID,
+            sx = LonX,
+            sy = LatY
+        )
+    ) |>
+    dplyr::left_join(
+        dplyr::select(
+            mafia_nodes,
+            Target = ID,
+            tx = LonX,
+            ty = LatY
+        )
+    ) |>
+    dplyr::select(from = Source, to = Target) |>
+    dplyr::as_tibble()
+
+mafia_network <- sfnetworks::sfnetwork(
+    nodes = mafia_sfnodes,
+    edges = mafia_sfedges,
+    directed = FALSE,
+    node_key = "ID",
+    edges_as_lines = TRUE
+)
+```
+
+```{r mafiaPlot}
+leaflet::leaflet() |>
+    leaflet::addTiles() |>
+    leafgl::addGlPolylines(
+        data = sf::st_as_sf(mafia_network, "edges"),
+        opacity = 0.8,
+        color = cbind(0, 0, 0),
+        weight = 0.5
+    ) |>
+    leafgl::addGlPoints(
+        data = sf::st_as_sf(mafia_network, "nodes"),
+        radius = mafia_sfnodes$centrality * 20,
+        popup = paste0(mafia_nodes$Label, " (", mafia_nodes$Family, ")")
+    )
+```
